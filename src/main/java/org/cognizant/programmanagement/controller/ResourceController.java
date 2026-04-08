@@ -1,12 +1,10 @@
 package org.cognizant.programmanagement.controller;
 
 import jakarta.validation.Valid;
-import org.cognizant.programmanagement.Enum.ResourceStatus;
 import org.cognizant.programmanagement.dto.request.ResourceRequestDTO;
 import org.cognizant.programmanagement.dto.response.ResourceResponseDTO;
 import org.cognizant.programmanagement.entity.Resource;
 import org.cognizant.programmanagement.service.ResourceService;
-//import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,13 +21,17 @@ public class ResourceController {
     private ResourceService resourceService;
 
     @PostMapping("/add")
-    public ResponseEntity<ResourceResponseDTO> addResource(@Valid @RequestBody ResourceRequestDTO dto) {
+    public ResponseEntity<ResourceResponseDTO> addResource(
+            @Valid @RequestBody ResourceRequestDTO dto,
+            @RequestParam int managerId) {
+
         Resource entity = toEntity(dto);
-        resourceService.addResource(dto.getProgramId(), entity);
+        // Using dto.getProgramId() directly from your DTO
+        resourceService.addResource(dto.getProgramId(), entity, managerId);
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponseDTO(entity));
     }
 
-   /* @PutMapping("/{id}/consume")
+    @PutMapping("/{id}/consume")
     public ResponseEntity<ResourceResponseDTO> consumeResource(
             @PathVariable int id,
             @RequestParam double amount,
@@ -38,7 +40,7 @@ public class ResourceController {
 
         Resource updated = resourceService.consumeResource(id, amount, receiverName, managerId);
         return ResponseEntity.ok(toResponseDTO(updated));
-    }*/
+    }
 
     @GetMapping("/viewAll")
     public ResponseEntity<List<ResourceResponseDTO>> getAllResources() {
@@ -48,8 +50,6 @@ public class ResourceController {
                 .collect(Collectors.toList());
         return ResponseEntity.ok(responseList);
     }
-
-
 
     private ResourceResponseDTO toResponseDTO(Resource entity) {
         ResourceResponseDTO dto = new ResourceResponseDTO();
@@ -73,9 +73,7 @@ public class ResourceController {
         entity.setType(dto.getType());
         entity.setQuantity(dto.getQuantity());
         entity.setUnit(dto.getUnit());
-
-        entity.setStatus(ResourceStatus.ALLOCATED);
-        entity.setReceivedBy("");
+        entity.setReceivedBy(""); // Initialize history
         return entity;
     }
 }

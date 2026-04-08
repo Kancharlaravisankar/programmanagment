@@ -1,68 +1,18 @@
-//package org.cognizant.disastermanagement.service;
-//
-//import org.cognizant.disastermanagement.entity.RecoveryProgram;
-//import org.cognizant.disastermanagement.entity.Resource;
-//import org.cognizant.disastermanagement.dao.RecoveryProgramRepository;
-//import org.cognizant.disastermanagement.dao.ResourceRepository;
-//import org.cognizant.disastermanagement.Enum.ResourceStatus;
-//import org.springframework.beans.factory.annotation.Autowired;
-//import org.springframework.stereotype.Service;
-//import org.springframework.transaction.annotation.Transactional;
-//import java.util.List;
-//
-//@Service
-//public class ResourceService {
-//
-//    @Autowired
-//    private ResourceRepository resourceRepo;
-//
-//    @Autowired
-//    private RecoveryProgramRepository programRepo;
-//
-//    @Transactional
-//    public void addResource(int programId, Resource resource) {
-//        RecoveryProgram program = programRepo.findById(programId)
-//                .orElseThrow(() -> new RuntimeException("Program not found with ID: " + programId));
-//        resource.setRecoveryProgram(program);
-//        resourceRepo.save(resource);
-//    }
-//
-//    @Transactional
-//    public Resource consumeResource(int resourceId, double amount) {
-//        Resource res = resourceRepo.findById(resourceId)
-//                .orElseThrow(() -> new RuntimeException("Resource not found"));
-//
-//        if (res.getQuantity() < amount) {
-//            throw new RuntimeException("Insufficient quantity available!");
-//        }
-//
-//        res.setQuantity(res.getQuantity() - amount);
-//
-//        // Monitoring Logic: Auto-update status based on usage
-//        if (res.getQuantity() == 0) {
-//            res.setStatus(ResourceStatus.Consumed);
-//        } else {
-//            res.setStatus(ResourceStatus.InUse);
-//        }
-//
-//        return resourceRepo.save(res);
-//    }
-//
-//    public List<Resource> getAllResources() {
-//        return resourceRepo.findAll();
-//    }
-//}
 package org.cognizant.programmanagement.service;
 
+import org.cognizant.programmanagement.client.IdentityClient;
 import org.cognizant.programmanagement.entity.RecoveryProgram;
 import org.cognizant.programmanagement.entity.Resource;
 import org.cognizant.programmanagement.dao.RecoveryProgramRepository;
 import org.cognizant.programmanagement.dao.ResourceRepository;
+import org.cognizant.programmanagement.Enum.ResourceStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ResourceService {
@@ -73,41 +23,40 @@ public class ResourceService {
     @Autowired
     private RecoveryProgramRepository programRepo;
 
-  /*  @Autowired
-    private UserRepository userRepo; // Needed to find the Manager
-
     @Autowired
-    private AuditLogRepository auditLogRepo; // Needed to save the security log
-*/
+    private IdentityClient identityClient;
+
     @Transactional
-    public void addResource(int programId, Resource resource) {
+    public void addResource(int programId, Resource resource, int managerId) {
         RecoveryProgram program = programRepo.findById(programId)
                 .orElseThrow(() -> new RuntimeException("Program not found with ID: " + programId));
+
         resource.setRecoveryProgram(program);
-        resourceRepo.save(resource);
+        resource.setStatus(ResourceStatus.ALLOCATED);
+        Resource saved = resourceRepo.save(resource);
+
+        // Audit Log for Addition
+        sendAuditLog(managerId, "CREATE", "RESOURCE_TABLE",
+                "Added " + saved.getQuantity() + " " + saved.getUnit() + " of " + saved.getName());
     }
 
-    /**
-     * Updated consumeResource to handle receiver history and audit logging.
-     */
-    /*@Transactional
+    @Transactional
     public Resource consumeResource(int resourceId, double amount, String receiverName, int managerId) {
-        // 1. Update Resource Inventory
         Resource res = resourceRepo.findById(resourceId)
                 .orElseThrow(() -> new RuntimeException("Resource not found"));
 
         if (res.getQuantity() < amount) {
-            throw new RuntimeException("Insufficient quantity available! Current: " + res.getQuantity());
+            throw new RuntimeException("Insufficient quantity available!");
         }
 
         res.setQuantity(res.getQuantity() - amount);
 
-        // Append to the ReceivedBy history string
+        // Update History
         String currentHistory = (res.getReceivedBy() == null) ? "" : res.getReceivedBy();
         String newEntry = receiverName + " (" + amount + " " + res.getUnit() + ")";
         res.setReceivedBy(currentHistory.isEmpty() ? newEntry : currentHistory + " | " + newEntry);
 
-        // Monitoring Logic: Auto-update status
+        // Update Status
         if (res.getQuantity() == 0) {
             res.setStatus(ResourceStatus.CONSUMED);
         } else {
@@ -116,22 +65,28 @@ public class ResourceService {
 
         Resource updatedResource = resourceRepo.save(res);
 
-        // 2. Create Audit Log Entry for Security
-        User manager = userRepo.findById(managerId)
-                .orElseThrow(() -> new RuntimeException("Manager/User not found with ID: " + managerId));
-
-        AuditLog log = new AuditLog();
-        log.setUser(manager);
-        log.setAction("CONSUME");
-        log.setResource("RESOURCE_TABLE"); // Labeling the module changed
-        log.setTimestamp(LocalDateTime.now());
-        log.setDetails("Allocated " + amount + " " + res.getUnit() + " of " + res.getName() + " to " + receiverName);
-
-        auditLogRepo.save(log);
+        // Audit Log for Consumption
+        sendAuditLog(managerId, "CONSUME", "RESOURCE_TABLE",
+                "Allocated " + amount + " " + res.getUnit() + " of " + res.getName() + " to " + receiverName);
 
         return updatedResource;
     }
-*/
+
+    private void sendAuditLog(int userId, String action, String resource, String details) {
+        Map<String, Object> log = new HashMap<>();
+        log.put("userId", userId);
+        log.put("action", action);
+        log.put("resource", resource);
+        log.put("details", details);
+
+        try {
+            identityClient.saveAuditLog(log);
+        } catch (Exception e) {
+            // Log failure locally so the main transaction completes
+            System.err.println("External Audit Log Failed: " + e.getMessage());
+        }
+    }
+
     public List<Resource> getAllResources() {
         return resourceRepo.findAll();
     }
