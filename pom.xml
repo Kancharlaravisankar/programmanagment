@@ -9,10 +9,10 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>org.cognizant</groupId>
-	<artifactId>AuditComplianceManagement</artifactId>
+	<artifactId>ProgramManagement</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>AuditComplianceManagement</name>
-	<description>AuditComplianceManagement</description>
+	<name>ProgramManagement</name>
+	<description>ProgramManagement</description>
 	<url/>
 	<licenses>
 		<license/>

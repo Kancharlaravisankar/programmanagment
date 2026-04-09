@@ -1,11 +1,13 @@
 package org.cognizant.programmanagement.service;
 
+import org.cognizant.programmanagement.Enum.ResourceStatus;
 import org.cognizant.programmanagement.client.IdentityClient;
-import org.cognizant.programmanagement.entity.RecoveryProgram;
-import org.cognizant.programmanagement.entity.Resource;
 import org.cognizant.programmanagement.dao.RecoveryProgramRepository;
 import org.cognizant.programmanagement.dao.ResourceRepository;
-import org.cognizant.programmanagement.Enum.ResourceStatus;
+import org.cognizant.programmanagement.dto.request.ResourceRequestDTO;
+import org.cognizant.programmanagement.dto.response.ResourceResponseDTO;
+import org.cognizant.programmanagement.entity.RecoveryProgram;
+import org.cognizant.programmanagement.entity.Resource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class ResourceService {
@@ -27,21 +30,25 @@ public class ResourceService {
     private IdentityClient identityClient;
 
     @Transactional
-    public void addResource(int programId, Resource resource, int managerId) {
-        RecoveryProgram program = programRepo.findById(programId)
-                .orElseThrow(() -> new RuntimeException("Program not found with ID: " + programId));
+    public ResourceResponseDTO addResource(ResourceRequestDTO dto, int managerId) {
+        RecoveryProgram program = programRepo.findById(dto.getProgramId())
+                .orElseThrow(() -> new RuntimeException("Program not found with ID: " + dto.getProgramId()));
 
+        // Convert Request DTO to Entity
+        Resource resource = toEntity(dto);
         resource.setRecoveryProgram(program);
         resource.setStatus(ResourceStatus.ALLOCATED);
+
         Resource saved = resourceRepo.save(resource);
 
-        // Audit Log for Addition
         sendAuditLog(managerId, "CREATE", "RESOURCE_TABLE",
                 "Added " + saved.getQuantity() + " " + saved.getUnit() + " of " + saved.getName());
+
+        return toResponseDTO(saved);
     }
 
     @Transactional
-    public Resource consumeResource(int resourceId, double amount, String receiverName, int managerId) {
+    public ResourceResponseDTO consumeResource(int resourceId, double amount, String receiverName, int managerId) {
         Resource res = resourceRepo.findById(resourceId)
                 .orElseThrow(() -> new RuntimeException("Resource not found"));
 
@@ -51,25 +58,54 @@ public class ResourceService {
 
         res.setQuantity(res.getQuantity() - amount);
 
-        // Update History
+        // Update History Logic
         String currentHistory = (res.getReceivedBy() == null) ? "" : res.getReceivedBy();
         String newEntry = receiverName + " (" + amount + " " + res.getUnit() + ")";
         res.setReceivedBy(currentHistory.isEmpty() ? newEntry : currentHistory + " | " + newEntry);
 
-        // Update Status
-        if (res.getQuantity() == 0) {
-            res.setStatus(ResourceStatus.CONSUMED);
-        } else {
-            res.setStatus(ResourceStatus.INUSE);
-        }
+        // Update Status based on remaining quantity
+        res.setStatus(res.getQuantity() == 0 ? ResourceStatus.CONSUMED : ResourceStatus.INUSE);
 
         Resource updatedResource = resourceRepo.save(res);
 
-        // Audit Log for Consumption
         sendAuditLog(managerId, "CONSUME", "RESOURCE_TABLE",
                 "Allocated " + amount + " " + res.getUnit() + " of " + res.getName() + " to " + receiverName);
 
-        return updatedResource;
+        return toResponseDTO(updatedResource);
+    }
+
+    public List<ResourceResponseDTO> getAllResources() {
+        return resourceRepo.findAll().stream()
+                .map(this::toResponseDTO)
+                .collect(Collectors.toList());
+    }
+
+    // --- Private Helper Methods for Mapping ---
+
+    private ResourceResponseDTO toResponseDTO(Resource entity) {
+        ResourceResponseDTO dto = new ResourceResponseDTO();
+        dto.setResourceId(entity.getResourceId());
+        dto.setName(entity.getName());
+        dto.setType(entity.getType());
+        dto.setQuantity(entity.getQuantity());
+        dto.setUnit(entity.getUnit());
+        dto.setStatus(entity.getStatus());
+        dto.setReceivedBy(entity.getReceivedBy());
+
+        if (entity.getRecoveryProgram() != null) {
+            dto.setProgramId(entity.getRecoveryProgram().getProgramId());
+        }
+        return dto;
+    }
+
+    private Resource toEntity(ResourceRequestDTO dto) {
+        Resource entity = new Resource();
+        entity.setName(dto.getName());
+        entity.setType(dto.getType());
+        entity.setQuantity(dto.getQuantity());
+        entity.setUnit(dto.getUnit());
+        entity.setReceivedBy("");
+        return entity;
     }
 
     private void sendAuditLog(int userId, String action, String resource, String details) {
@@ -82,12 +118,7 @@ public class ResourceService {
         try {
             identityClient.saveAuditLog(log);
         } catch (Exception e) {
-            // Log failure locally so the main transaction completes
             System.err.println("External Audit Log Failed: " + e.getMessage());
         }
-    }
-
-    public List<Resource> getAllResources() {
-        return resourceRepo.findAll();
     }
 }
