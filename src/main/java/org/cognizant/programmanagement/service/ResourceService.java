@@ -5,6 +5,7 @@ import org.cognizant.programmanagement.client.IdentityClient;
 import org.cognizant.programmanagement.dao.RecoveryProgramRepository;
 import org.cognizant.programmanagement.dao.ResourceRepository;
 import org.cognizant.programmanagement.dto.request.ResourceRequestDTO;
+import org.cognizant.programmanagement.dto.request.UserDTO;
 import org.cognizant.programmanagement.dto.response.ResourceResponseDTO;
 import org.cognizant.programmanagement.entity.RecoveryProgram;
 import org.cognizant.programmanagement.entity.Resource;
@@ -29,9 +30,24 @@ public class ResourceService {
     @Autowired
     private IdentityClient identityClient;
 
+
     @Transactional
     public ResourceResponseDTO addResource(ResourceRequestDTO dto, int managerId) {
         System.out.println(">>> START: addResource for Program ID: " + dto.getProgramId());
+
+        List<UserDTO> list=identityClient.allUsers();
+        boolean flag=false;
+        for(UserDTO u:list){
+            if(u.getUserId()==managerId){
+                flag=true;
+                break;
+            }
+        }
+        if(!flag){
+            throw new RuntimeException("This Id is not available in user table");
+        }
+
+
 
         RecoveryProgram program = programRepo.findById(dto.getProgramId())
                 .orElseThrow(() -> new RuntimeException("Program not found with ID: " + dto.getProgramId()));

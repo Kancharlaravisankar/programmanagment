@@ -23,7 +23,7 @@ public class ResourceController {
             @Valid @RequestBody ResourceRequestDTO dto,
             @RequestParam int managerId) {
 
-        // Service handles conversion from RequestDTO and returns ResponseDTO
+        // Service handles conversion from RequestDTO and returns ResponseDT
         ResourceResponseDTO response = resourceService.addResource(dto, managerId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
