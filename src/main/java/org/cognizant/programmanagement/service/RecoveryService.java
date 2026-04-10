@@ -100,23 +100,38 @@ public class RecoveryService {
     private void logAction(String action, String details) {
         try {
             Map<String, Object> logData = new HashMap<>();
-            Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
 
-            // Extracting user info from SecurityContext
-            Integer userId = (principal instanceof Integer) ? (Integer) principal : 1;
+            // 1. Get the current authentication
+            var auth = SecurityContextHolder.getContext().getAuthentication();
 
+            // 2. Logic to get User ID (Verify how your JWT stores the ID)
+            // If your JWT filter puts the ID in the principal, use it.
+            // Otherwise, you might need to cast 'auth.getPrincipal()' to your User object.
+            Long userId = 1L; // Use Long (1L) instead of Integer to match standard JPA IDs
+
+            if (auth != null && auth.getPrincipal() instanceof Long) {
+                userId = (Long) auth.getPrincipal();
+            }
+
+            // 3. Populate Map with keys EXACTLY matching AuditLogRequestDTO
             logData.put("userId", userId);
             logData.put("action", action);
             logData.put("resource", "RECOVERY_MANAGER");
             logData.put("details", details);
+
+            // 4. Use ISO_DATE_TIME format (Standard for @Valid and JSON)
             logData.put("timestamp", LocalDateTime.now().toString());
-            logData.put("ipAddress", "127.0.0.1");
+
+            logData.put("ipAddress", "127.0.0.1"); // In production, get this from HttpServletRequest
 
             identityClient.saveAuditLog(logData);
-            System.out.println(">>> Audit Log Sent: " + action);
+            System.out.println(">>> Audit Log Sent successfully: " + action);
 
         } catch (Exception e) {
-            System.err.println(">>> Audit Log Failed: " + e.getMessage());
+            // This will now print the full error to help you debug
+            System.err.println(">>> Audit Log Failed: " + e.getLocalizedMessage());
+            e.printStackTrace();
         }
+
     }
 }
