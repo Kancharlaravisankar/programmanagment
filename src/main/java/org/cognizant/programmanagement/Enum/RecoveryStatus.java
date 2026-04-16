@@ -1,5 +1,4 @@
 package org.cognizant.programmanagement.Enum;
-import com.fasterxml.jackson.annotation.JsonCreator;
 
 public enum RecoveryStatus {
     CANCELLED, COMPLETED, PLANNED, ACTIVE, SUSPENDED;
