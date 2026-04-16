@@ -2,16 +2,16 @@ package org.cognizant.programmanagement.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 import org.cognizant.programmanagement.Enum.IncidentStatus;
 import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Entity
 @Data
+@NoArgsConstructor
 @Table(name = "Incident")
 public class Incident {
 
@@ -32,29 +32,12 @@ public class Incident {
     @Column(name = "OfficerID")
     private Integer officerId;
 
-    // Using the new column name 'ReportIDs' and TEXT to avoid all size/constraint issues
-    @Column(name = "ReportIDs", columnDefinition = "TEXT")
-    private String reportIdsString = "";
-
-    @Transient
-    public List<Integer> getReportIdsAsList() {
-        if (reportIdsString == null || reportIdsString.isEmpty()) return new ArrayList<>();
-        return Arrays.stream(reportIdsString.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(Integer::parseInt)
-                .collect(Collectors.toList());
-    }
-
-    public void setReportIdsFromList(List<Integer> ids) {
-        if (ids == null || ids.isEmpty()) {
-            this.reportIdsString = "";
-        } else {
-            this.reportIdsString = ids.stream()
-                    .map(Object::toString)
-                    .collect(Collectors.joining(","));
-        }
-    }
-
-    public Incident() {}
+    // The Microservice Standard: Separate table for IDs
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(
+            name = "incident_reports",
+            joinColumns = @JoinColumn(name = "incident_id")
+    )
+    @Column(name = "report_id")
+    private List<Integer> reportIds = new ArrayList<>();
 }

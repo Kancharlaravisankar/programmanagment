@@ -24,7 +24,7 @@ public class EmergencyReportController {
      * POST /api/reports
      * Replaces /createreport
      */
-    @PostMapping
+    @PostMapping("/createReport")
     @ResponseStatus(HttpStatus.CREATED)
     public EmergencyReportResponseDTO createReport(@Valid @RequestBody EmergencyReportRequestDTO requestDTO) {
         return service.createReport(requestDTO);
@@ -34,7 +34,7 @@ public class EmergencyReportController {
      * GET /api/reports
      * Replaces /getallreports - Calling /api/reports will now work!
      */
-    @GetMapping
+    @GetMapping("/getallreports")
     public List<EmergencyReportResponseDTO> getAllReports() {
         return service.getAllReports();
     }
@@ -68,7 +68,7 @@ public class EmergencyReportController {
      * DELETE /api/reports/{id}
      * Replaces /delete/{id}
      */
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/delete/{id}")
     public String deleteReport(@PathVariable int id) {
         return service.deleteReport(id);
     }

@@ -5,12 +5,11 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import org.cognizant.programmanagement.Enum.IncidentStatus;
 
-
 @Data
 public class IncidentRequestDTO {
 
     @NotNull(message = "Report ID is required")
-    private Integer reportId;
+    private Integer reportId; // Corrected to single ID for the incoming request
 
     @NotNull(message = "Officer ID is required")
     private Integer officerId;

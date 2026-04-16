@@ -11,12 +11,10 @@ import org.cognizant.programmanagement.dto.response.IncidentResponseDTO;
 import org.cognizant.programmanagement.entity.EmergencyReport;
 import org.cognizant.programmanagement.entity.Incident;
 import org.cognizant.programmanagement.exception.ResourceNotFoundException;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,72 +38,81 @@ public class IncidentService {
     @Transactional
     public IncidentResponseDTO createIncident(IncidentRequestDTO req, int officerId) {
         // 1. Validate Officer via Feign
-        try {
-            List<UserDTO> userList = identityClient.allUsers();
-            if (userList != null && userList.stream().noneMatch(u -> u.getUserId() == officerId)) {
-                throw new RuntimeException("Invalid Officer ID");
-            }
-        } catch (Exception e) {
-            System.err.println("Warning: Identity Service unavailable. Skipping remote validation.");
-        }
+        validateOfficer(officerId);
 
-        // 2. Fetch Report
+        // 2. Fetch and Validate the incoming Report
         EmergencyReport newReport = reportRepo.findById(req.getReportId())
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found: " + req.getReportId()));
 
         if (newReport.getStatus() != ReportStatus.VALIDATED) {
-            throw new RuntimeException("Report must be VALIDATED first.");
+            throw new RuntimeException("Report must be VALIDATED first before creating an incident.");
         }
 
-        // 3. Proximity grouping logic
+        // 3. Proximity Logic: Find if there's an existing open incident nearby
         List<Incident> openIncidents = incidentRepo.findAll().stream()
                 .filter(i -> i.getStatus() == IncidentStatus.OPEN)
                 .collect(Collectors.toList());
 
-        Incident matchingIncident = null;
-        if (newReport.getLatitude() != null && newReport.getLongitude() != null) {
-            for (Incident existing : openIncidents) {
-                List<Integer> ids = existing.getReportIdsAsList();
-                if (!ids.isEmpty()) {
-                    EmergencyReport anchor = reportRepo.findById(ids.get(0)).orElse(null);
-                    if (anchor != null && anchor.getLatitude() != null && anchor.getLongitude() != null) {
-                        double dist = calculateDistance(newReport.getLatitude(), newReport.getLongitude(),
-                                anchor.getLatitude(), anchor.getLongitude());
-                        if (dist <= 200) {
-                            matchingIncident = existing;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
+        Incident matchingIncident = findNearbyIncident(newReport, openIncidents);
 
         Incident saved;
         if (matchingIncident != null) {
-            List<Integer> ids = matchingIncident.getReportIdsAsList();
-            if (!ids.contains(newReport.getReportId())) {
-                ids.add(newReport.getReportId());
-                matchingIncident.setReportIdsFromList(ids);
+            // Group this report with the existing incident
+            if (!matchingIncident.getReportIds().contains(newReport.getReportId())) {
+                matchingIncident.getReportIds().add(newReport.getReportId());
             }
             saved = incidentRepo.save(matchingIncident);
-            logAction("GROUP_REPORT", "Added Report " + req.getReportId() + " to Incident " + saved.getIncidentId());
+            logAction("GROUP_REPORT", "Added Report " + newReport.getReportId() + " to existing Incident " + saved.getIncidentId());
         } else {
+            // No nearby incident found, create a new one
             Incident incident = new Incident();
             incident.setOfficerId(officerId);
             incident.setActions(req.getActions());
             incident.setStatus(IncidentStatus.OPEN);
-            List<Integer> ids = new ArrayList<>();
-            ids.add(newReport.getReportId());
-            incident.setReportIdsFromList(ids);
+            incident.getReportIds().add(newReport.getReportId());
             saved = incidentRepo.save(incident);
-            logAction("CREATE_INCIDENT", "New Incident " + saved.getIncidentId());
+            logAction("CREATE_INCIDENT", "Created new Incident " + saved.getIncidentId() + " for Report " + newReport.getReportId());
         }
 
         return toResponseDTO(saved);
     }
 
+    private Incident findNearbyIncident(EmergencyReport newReport, List<Incident> openIncidents) {
+        if (newReport.getLatitude() == null || newReport.getLongitude() == null) return null;
+
+        for (Incident existing : openIncidents) {
+            // Check proximity based on the first report that started this incident
+            if (existing.getReportIds() != null && !existing.getReportIds().isEmpty()) {
+                Integer firstReportId = existing.getReportIds().get(0);
+                EmergencyReport anchor = reportRepo.findById(firstReportId).orElse(null);
+
+                if (anchor != null && anchor.getLatitude() != null && anchor.getLongitude() != null) {
+                    double dist = calculateDistance(newReport.getLatitude(), newReport.getLongitude(),
+                            anchor.getLatitude(), anchor.getLongitude());
+
+                    // If within 200 meters, consider it the same incident
+                    if (dist <= 200) {
+                        return existing;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private void validateOfficer(int officerId) {
+        try {
+            List<UserDTO> userList = identityClient.allUsers();
+            if (userList != null && userList.stream().noneMatch(u -> u.getUserId() == officerId)) {
+                throw new RuntimeException("Invalid Officer ID: " + officerId);
+            }
+        } catch (Exception e) {
+            System.err.println("Identity Service unreachable. Proceeding with caution.");
+        }
+    }
+
     private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-        final int R = 6371000;
+        final int R = 6371000; // Earth radius in meters
         double dLat = Math.toRadians(lat2 - lat1);
         double dLon = Math.toRadians(lon2 - lon1);
         double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
@@ -114,24 +121,24 @@ public class IncidentService {
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-    // CRUD Methods
+    // CRUD and Helper Methods
     @Transactional
     public IncidentResponseDTO assignOfficer(int id, int offId) {
-        Incident i = incidentRepo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Not found"));
+        Incident i = incidentRepo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Incident not found"));
         i.setOfficerId(offId);
         return toResponseDTO(incidentRepo.save(i));
     }
 
     @Transactional
     public IncidentResponseDTO updateIncidentStatus(int id, String status) {
-        Incident i = incidentRepo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Not found"));
+        Incident i = incidentRepo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Incident not found"));
         i.setStatus(IncidentStatus.valueOf(status.toUpperCase()));
         return toResponseDTO(incidentRepo.save(i));
     }
 
     @Transactional
     public String deleteIncident(int id) {
-        Incident i = incidentRepo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Not found"));
+        Incident i = incidentRepo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Incident not found"));
         incidentRepo.delete(i);
         return "Deleted Incident " + id;
     }
@@ -141,7 +148,7 @@ public class IncidentService {
     }
 
     public IncidentResponseDTO getIncidentById(int id) {
-        Incident i = incidentRepo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Not found"));
+        Incident i = incidentRepo.findById(id).orElseThrow(() -> new ResourceNotFoundException("Incident not found"));
         return toResponseDTO(i);
     }
 
@@ -153,15 +160,14 @@ public class IncidentService {
             log.put("timestamp", LocalDateTime.now().toString());
             identityClient.saveAuditLog(log);
         } catch (Exception e) {
-            System.err.println("Audit log failed.");
+            System.err.println("Log failed: " + e.getMessage());
         }
     }
 
     private IncidentResponseDTO toResponseDTO(Incident entity) {
         IncidentResponseDTO dto = new IncidentResponseDTO();
         dto.setIncidentId(entity.getIncidentId());
-        List<Integer> ids = entity.getReportIdsAsList();
-        if (!ids.isEmpty()) dto.setReportId(ids.get(0));
+        dto.setReportIds(entity.getReportIds());
         dto.setOfficerId(entity.getOfficerId());
         dto.setActions(entity.getActions());
         dto.setStatus(entity.getStatus());
