@@ -9,10 +9,10 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 @EnableDiscoveryClient
 @EnableFeignClients
 
-public class ProgramManagementApplication {
+public class ProgramServiceApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(ProgramManagementApplication.class, args);
+		SpringApplication.run(ProgramServiceApplication.class, args);
 	}
 
 }
