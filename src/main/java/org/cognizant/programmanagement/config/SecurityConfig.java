@@ -32,7 +32,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                      .requestMatchers("/api/users/login", "/api/users/createUser","/api/citizens/createCitizen","/api/programs/viewAll","/api/resources/viewAll").permitAll() // ALLOW THESE WITHOUT LOGIN
-                    .requestMatchers( "/api/programs/**","/api/resources/**").hasRole("MANAGER")
+                    .requestMatchers( "/api/programs/**","/api/resources/**","/api/reports/**","/api/incidents/**").hasRole("MANAGER")
                 )
 
                 .httpBasic(Customizer.withDefaults())
