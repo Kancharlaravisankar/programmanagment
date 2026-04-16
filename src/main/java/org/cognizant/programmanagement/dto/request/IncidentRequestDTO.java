@@ -19,4 +19,7 @@ public class IncidentRequestDTO {
 
     @NotNull(message = "Status is required")
     private IncidentStatus status;
+    private Double Longitude;
+    private String description;
+    private Double Latitude;
 }

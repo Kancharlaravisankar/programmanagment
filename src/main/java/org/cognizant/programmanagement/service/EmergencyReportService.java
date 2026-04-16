@@ -31,14 +31,10 @@ public class EmergencyReportService {
     }
 
     /**
-     * MANAGER VALIDATION POINT
-     * Updates the status of the report. This must be 'VALIDATED' for
-     * the IncidentService to allow incident creation.
+     * Updates report status (Manager Point)
      */
     @Transactional
     public EmergencyReportResponseDTO updateReportStatus(int id, String status) {
-        System.out.println(">>> Request to update Report ID: " + id + " to " + status);
-
         EmergencyReport report = reportRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found with ID: " + id));
 
@@ -47,72 +43,69 @@ public class EmergencyReportService {
         try {
             ReportStatus newStatus = ReportStatus.valueOf(status.trim().toUpperCase());
             report.setStatus(newStatus);
-            System.out.println(">>> Enum converted successfully: " + newStatus);
         } catch (IllegalArgumentException e) {
-            System.err.println(">>> Enum conversion failed for: " + status);
-            throw new RuntimeException("Invalid status value provided.");
+            throw new RuntimeException("Invalid status value provided: " + status);
         }
 
-        try {
-            EmergencyReport updated = reportRepo.save(report);
+        EmergencyReport updated = reportRepo.save(report);
+        logAction("UPDATE_REPORT_STATUS", "Updated Report #" + id + " from " + oldStatus + " to " + status);
 
-            // --- AUDIT LOG ADDED ---
-            logAction("UPDATE_REPORT_STATUS", "Updated Report #" + id + " from " + oldStatus + " to " + status);
-
-            System.out.println(">>> Database save successful.");
-            return toResponseDTO(updated);
-        } catch (Exception e) {
-            System.err.println(">>> Database save FAILED: " + e.getMessage());
-            throw new RuntimeException("Database error: Ensure @Enumerated(EnumType.STRING) is on the Entity.");
-        }
+        return toResponseDTO(updated);
     }
 
-    // CREATE REPORT (Used by Citizen)
+    /**
+     * CREATE REPORT
+     * Now correctly validates the Citizen using Feign Client
+     */
     @Transactional
     public EmergencyReportResponseDTO createReport(EmergencyReportRequestDTO req) {
+        // 1. Validate Citizen via Feign Client from the Request DTO
+        CitizenDTO citizen;
         try {
-            identityClient.getCitizenById(req.getCitizenId());
+            // We use req.getCitizenId() because that's what comes from the frontend/caller
+            citizen = identityClient.getCitizenById(req.getCitizenId());
+            if (citizen == null) {
+                throw new ResourceNotFoundException("Citizen not found in Identity Service");
+            }
         } catch (Exception e) {
             throw new ResourceNotFoundException("Citizen validation failed in Identity Service for ID: " + req.getCitizenId());
         }
 
+        // 2. Map DTO to Entity
         EmergencyReport report = new EmergencyReport();
-        report.setCitizenId(req.getCitizenId());
+        report.setCitizenId(citizen.getCitizenId()); // Use validated ID from Feign response
         report.setLocation(req.getLocation());
         report.setType(req.getType());
         report.setStatus(req.getStatus() != null ? req.getStatus() : ReportStatus.SUBMITTED);
         report.setLatitude(req.getLatitude());
         report.setLongitude(req.getLongitude());
         report.setDescription(req.getDescription());
+        report.setDate(LocalDateTime.now());
 
+        // 3. Save
         EmergencyReport saved = reportRepo.save(report);
 
-        // --- AUDIT LOG ADDED ---
-        logAction("CREATE_REPORT", "New report created by Citizen ID: " + req.getCitizenId() + " at " + req.getLocation());
+        // 4. Audit
+        logAction("CREATE_REPORT", "New report created by Citizen: " + citizen.getName() + " (ID: " + citizen.getCitizenId() + ")");
 
         return toResponseDTO(saved);
     }
 
-    // GET ALL REPORTS
     public List<EmergencyReportResponseDTO> getAllReports() {
-        return reportRepo.findAll()
-                .stream()
-                .map(this::toResponseDTO)
-                .collect(Collectors.toList());
+        return reportRepo.findAll().stream().map(this::toResponseDTO).collect(Collectors.toList());
     }
 
-    // GET BY ID
     public EmergencyReportResponseDTO getReportById(int id) {
         EmergencyReport report = reportRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found with ID: " + id));
         return toResponseDTO(report);
     }
 
-    // AGGREGATED DATA: Report + Citizen Details
     public EmergencyReportDetailsResponseDTO getReportWithCitizen(int id) {
         EmergencyReport report = reportRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found with ID: " + id));
 
+        // Fetch citizen details from Identity Service
         CitizenDTO citizen = identityClient.getCitizenById(report.getCitizenId());
 
         EmergencyReportDetailsResponseDTO details = new EmergencyReportDetailsResponseDTO();
@@ -123,35 +116,24 @@ public class EmergencyReportService {
         return details;
     }
 
-    // DELETE
     @Transactional
     public String deleteReport(int id) {
         EmergencyReport report = reportRepo.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Report not found with ID: " + id));
         reportRepo.delete(report);
-
-        // --- AUDIT LOG ADDED ---
         logAction("DELETE_REPORT", "Deleted Emergency Report ID: " + id);
-
         return "Emergency Report deleted successfully with ID: " + id;
     }
 
-    /**
-     * PRIVATE HELPER: Log Action
-     * Shared logic to send audit logs to the Identity microservice
-     */
     private void logAction(String action, String details) {
         try {
             Map<String, Object> logData = new HashMap<>();
-
             var auth = SecurityContextHolder.getContext().getAuthentication();
-            Long userId = 1L; // Default for testing
 
-            if (auth != null && auth.getPrincipal() instanceof Long) {
-                userId = (Long) auth.getPrincipal();
-            }
+            // Logic to get the current logged-in user ID
+            Object principal = (auth != null) ? auth.getPrincipal() : null;
+            logData.put("userId", (principal instanceof Long) ? principal : 1L);
 
-            logData.put("userId", userId);
             logData.put("action", action);
             logData.put("resource", "REPORT_MANAGEMENT");
             logData.put("details", details);
@@ -159,14 +141,11 @@ public class EmergencyReportService {
             logData.put("ipAddress", "127.0.0.1");
 
             identityClient.saveAuditLog(logData);
-            System.out.println(">>> Report Audit Log Sent successfully: " + action);
-
         } catch (Exception e) {
-            System.err.println(">>> Report Audit Log Failed: " + e.getLocalizedMessage());
+            System.err.println(">>> Audit Log Failed: " + e.getMessage());
         }
     }
 
-    // HELPER: Entity to DTO
     private EmergencyReportResponseDTO toResponseDTO(EmergencyReport entity) {
         EmergencyReportResponseDTO dto = new EmergencyReportResponseDTO();
         dto.setReportId(entity.getReportId());
