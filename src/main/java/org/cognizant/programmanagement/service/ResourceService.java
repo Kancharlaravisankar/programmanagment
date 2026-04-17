@@ -53,32 +53,53 @@ public class ResourceService {
     }
 
     @Transactional
-    public ResourceResponseDTO consumeResource(int resourceId, double amount, String receiverName, int managerId) {
-        // 1. Validate Manager Role
-        validateManagerRole(managerId);
+    public ResourceResponseDTO consumeResource(int resourceId, double amount, int officerId) {
+        // 1. Validate that the user is a RELIEF_OFFICER
+        validateUserRole(officerId, Role.OFFICER);
 
         Resource res = resourceRepo.findById(resourceId)
                 .orElseThrow(() -> new RuntimeException("Resource not found"));
 
+        // 2. Check availability
         if (res.getQuantity() < amount) {
-            throw new RuntimeException("Insufficient quantity available!");
+            throw new RuntimeException("Insufficient quantity! Available: " + res.getQuantity());
         }
 
+        // 3. Deduct quantity
         res.setQuantity(res.getQuantity() - amount);
+
+        // 4. Store Officer ID in the history/receivedBy field
         String currentHistory = (res.getReceivedBy() == null) ? "" : res.getReceivedBy();
-        String newEntry = receiverName + " (" + amount + " " + res.getUnit() + ")";
+        String newEntry = "OfficerID:" + officerId + " (" + amount + " " + res.getUnit() + ")";
+
         res.setReceivedBy(currentHistory.isEmpty() ? newEntry : currentHistory + " | " + newEntry);
+
+        // 5. Update Status
         res.setStatus(res.getQuantity() <= 0 ? ResourceStatus.CONSUMED : ResourceStatus.INUSE);
 
         Resource updatedResource = resourceRepo.saveAndFlush(res);
 
-        try {
-            sendAuditLog(managerId, "CONSUME", "RESOURCE_TABLE", "Allocated " + amount + " to " + receiverName);
-        } catch (Exception e) {
-            System.err.println("Audit Log failed.");
-        }
+        // 6. Audit Log (Action performed by Officer)
+        sendAuditLog(officerId, "CONSUME", "RESOURCE_TABLE", "Officer consumed " + amount + " units.");
 
         return toResponseDTO(updatedResource);
+    }
+
+    /**
+     * Flexible Validation Helper
+     */
+    private void validateUserRole(int userId, Role requiredRole) {
+        try {
+            List<UserDTO> userList = identityClient.allUsers();
+            boolean isValid = userList != null && userList.stream()
+                    .anyMatch(u -> u.getUserId() == userId && u.getRole() == requiredRole);
+
+            if (!isValid) {
+                throw new RuntimeException("Access Denied: User ID " + userId + " is not an authorized " + requiredRole);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Role verification failed: " + e.getMessage());
+        }
     }
 
     private void validateManagerRole(int managerId) {

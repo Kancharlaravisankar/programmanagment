@@ -32,10 +32,10 @@ public class ResourceController {
     public ResponseEntity<ResourceResponseDTO> consumeResource(
             @PathVariable int id,
             @RequestParam double amount,
-            @RequestParam String receiverName,
-            @RequestParam int managerId) {
+            @RequestParam int officerId) {
 
-        ResourceResponseDTO updated = resourceService.consumeResource(id, amount, receiverName, managerId);
+        // Now passing officerId to the service for validation and tracking
+        ResourceResponseDTO updated = resourceService.consumeResource(id, amount, officerId);
         return ResponseEntity.ok(updated);
     }
 
