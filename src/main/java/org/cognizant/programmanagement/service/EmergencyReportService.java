@@ -57,36 +57,34 @@ public class EmergencyReportService {
      * CREATE REPORT
      * Now correctly validates the Citizen using Feign Client
      */
+    // CREATE REPORT (Used by Citizen)
     @Transactional
     public EmergencyReportResponseDTO createReport(EmergencyReportRequestDTO req) {
-        // 1. Validate Citizen via Feign Client from the Request DTO
-        CitizenDTO citizen;
+        // 1. Validate Citizen exists in Identity Service
         try {
-            // We use req.getCitizenId() because that's what comes from the frontend/caller
-            citizen = identityClient.getCitizenById(req.getCitizenId());
-            if (citizen == null) {
-                throw new ResourceNotFoundException("Citizen not found in Identity Service");
-            }
+            identityClient.getCitizenById(req.getCitizenId());
         } catch (Exception e) {
-            throw new ResourceNotFoundException("Citizen validation failed in Identity Service for ID: " + req.getCitizenId());
+            throw new ResourceNotFoundException("Citizen validation failed for ID: " + req.getCitizenId());
         }
 
         // 2. Map DTO to Entity
         EmergencyReport report = new EmergencyReport();
-        report.setCitizenId(citizen.getCitizenId()); // Use validated ID from Feign response
+        report.setCitizenId(req.getCitizenId());
         report.setLocation(req.getLocation());
         report.setType(req.getType());
-        report.setStatus(req.getStatus() != null ? req.getStatus() : ReportStatus.SUBMITTED);
+
+        // Logic: Always set to PENDING by default for new citizen reports
+        report.setStatus(ReportStatus.PENDING);
+
         report.setLatitude(req.getLatitude());
         report.setLongitude(req.getLongitude());
         report.setDescription(req.getDescription());
-        report.setDate(LocalDateTime.now());
 
-        // 3. Save
+        // 3. Save to Database
         EmergencyReport saved = reportRepo.save(report);
 
-        // 4. Audit
-        logAction("CREATE_REPORT", "New report created by Citizen: " + citizen.getName() + " (ID: " + citizen.getCitizenId() + ")");
+        // 4. Audit Logging
+        logAction("CREATE_REPORT", "New pending report created by Citizen ID: " + req.getCitizenId());
 
         return toResponseDTO(saved);
     }

@@ -17,9 +17,7 @@ public class EmergencyReportRequestDTO {
     private String location;
     @NotNull(message = "Type is required")
     private EmergencyType type;
-    @NotNull(message = "Status is required")
 
-    private ReportStatus status;
     @NotNull(message = "Latitude is required")
     @DecimalMin(value = "-90.0", message = "Latitude must be between -90 and 90")
     @DecimalMax(value = "90.0", message = "Latitude must be between -90 and 90")

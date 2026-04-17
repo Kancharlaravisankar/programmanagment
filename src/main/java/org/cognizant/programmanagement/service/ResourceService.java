@@ -1,6 +1,8 @@
+
 package org.cognizant.programmanagement.service;
 
 import org.cognizant.programmanagement.Enum.ResourceStatus;
+import org.cognizant.programmanagement.Enum.Role; // Added Role Enum
 import org.cognizant.programmanagement.client.IdentityClient;
 import org.cognizant.programmanagement.dao.RecoveryProgramRepository;
 import org.cognizant.programmanagement.dao.ResourceRepository;
@@ -30,24 +32,10 @@ public class ResourceService {
     @Autowired
     private IdentityClient identityClient;
 
-
     @Transactional
     public ResourceResponseDTO addResource(ResourceRequestDTO dto, int managerId) {
-        System.out.println(">>> START: addResource for Program ID: " + dto.getProgramId());
-
-        List<UserDTO> list=identityClient.allUsers();
-        boolean flag=false;
-        for(UserDTO u:list){
-            if(u.getUserId()==managerId){
-                flag=true;
-                break;
-            }
-        }
-        if(!flag){
-            throw new RuntimeException("This Id is not available in user table");
-        }
-
-
+        // 1. Validate Manager Role
+        validateManagerRole(managerId);
 
         RecoveryProgram program = programRepo.findById(dto.getProgramId())
                 .orElseThrow(() -> new RuntimeException("Program not found with ID: " + dto.getProgramId()));
@@ -56,11 +44,8 @@ public class ResourceService {
         resource.setRecoveryProgram(program);
         resource.setStatus(ResourceStatus.ALLOCATED);
 
-        // Commit to DB immediately
         Resource saved = resourceRepo.saveAndFlush(resource);
-        System.out.println(">>> SUCCESS: Resource saved to Database.");
 
-        // Attempt Audit Log
         sendAuditLog(managerId, "CREATE", "RESOURCE_TABLE",
                 "Added " + saved.getQuantity() + " " + saved.getUnit() + " of " + saved.getName());
 
@@ -69,51 +54,50 @@ public class ResourceService {
 
     @Transactional
     public ResourceResponseDTO consumeResource(int resourceId, double amount, String receiverName, int managerId) {
-        System.out.println(">>> START: consumeResource. Resource ID: " + resourceId + ", Manager ID: " + managerId);
+        // 1. Validate Manager Role
+        validateManagerRole(managerId);
 
         Resource res = resourceRepo.findById(resourceId)
-                .orElseThrow(() -> new RuntimeException("Resource not found with ID: " + resourceId));
+                .orElseThrow(() -> new RuntimeException("Resource not found"));
 
-        // Check availability
         if (res.getQuantity() < amount) {
-            System.err.println(">>> FAILED: Insufficient quantity. Requested: " + amount + ", Available: " + res.getQuantity());
             throw new RuntimeException("Insufficient quantity available!");
         }
 
-        // Update quantity
         res.setQuantity(res.getQuantity() - amount);
-
-        // Update history (null-safe)
         String currentHistory = (res.getReceivedBy() == null) ? "" : res.getReceivedBy();
         String newEntry = receiverName + " (" + amount + " " + res.getUnit() + ")";
         res.setReceivedBy(currentHistory.isEmpty() ? newEntry : currentHistory + " | " + newEntry);
-
-        // Update status
         res.setStatus(res.getQuantity() <= 0 ? ResourceStatus.CONSUMED : ResourceStatus.INUSE);
 
-        // Save immediately to ensure local DB is updated even if external call fails
         Resource updatedResource = resourceRepo.saveAndFlush(res);
-        System.out.println(">>> SUCCESS: Local Resource updated. New Quantity: " + updatedResource.getQuantity());
 
-        // Attempt Audit Log (Isolated from main transaction)
         try {
-            String logMsg = "Allocated " + amount + " " + res.getUnit() + " of " + res.getName() + " to " + receiverName;
-            System.out.println(">>> INFO: Sending Audit Log for CONSUME...");
-            sendAuditLog(managerId, "CONSUME", "RESOURCE_TABLE", logMsg);
+            sendAuditLog(managerId, "CONSUME", "RESOURCE_TABLE", "Allocated " + amount + " to " + receiverName);
         } catch (Exception e) {
-            System.err.println(">>> WARNING: Audit Log failed for CONSUME, but resource was successfully updated: " + e.getMessage());
+            System.err.println("Audit Log failed.");
         }
 
         return toResponseDTO(updatedResource);
     }
 
-    public List<ResourceResponseDTO> getAllResources() {
-        return resourceRepo.findAll().stream()
-                .map(this::toResponseDTO)
-                .collect(Collectors.toList());
+    private void validateManagerRole(int managerId) {
+        try {
+            List<UserDTO> userList = identityClient.allUsers();
+            boolean isValid = userList != null && userList.stream()
+                    .anyMatch(u -> u.getUserId() == managerId && u.getRole() == Role.MANAGER);
+
+            if (!isValid) {
+                throw new RuntimeException("Access Denied: User ID " + managerId + " is not an authorized Manager.");
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Manager verification failed: " + e.getMessage());
+        }
     }
 
-    // --- Private Helper Methods ---
+    public List<ResourceResponseDTO> getAllResources() {
+        return resourceRepo.findAll().stream().map(this::toResponseDTO).collect(Collectors.toList());
+    }
 
     private ResourceResponseDTO toResponseDTO(Resource entity) {
         ResourceResponseDTO dto = new ResourceResponseDTO();
@@ -124,10 +108,7 @@ public class ResourceService {
         dto.setUnit(entity.getUnit());
         dto.setStatus(entity.getStatus());
         dto.setReceivedBy(entity.getReceivedBy());
-
-        if (entity.getRecoveryProgram() != null) {
-            dto.setProgramId(entity.getRecoveryProgram().getProgramId());
-        }
+        if (entity.getRecoveryProgram() != null) dto.setProgramId(entity.getRecoveryProgram().getProgramId());
         return dto;
     }
 
@@ -147,19 +128,8 @@ public class ResourceService {
         log.put("action", action);
         log.put("resource", resource);
         log.put("details", details);
-
-        // These fields are often mandatory in your User/Identity microservice
         log.put("timestamp", java.time.LocalDateTime.now().toString());
         log.put("ipAddress", "127.0.0.1");
-
-        try {
-            identityClient.saveAuditLog(log);
-            System.out.println(">>> AUDIT LOG SUCCESS: " + action);
-        } catch (Exception e) {
-            // Log the specific error (likely 401 Unauthorized or 500 Internal Error)
-            System.err.println(">>> AUDIT LOG EXTERNAL FAILURE: " + e.getMessage());
-            // We throw the exception here so the calling method's try-catch can handle it
-            throw e;
-        }
+        identityClient.saveAuditLog(log);
     }
 }

@@ -2,6 +2,7 @@ package org.cognizant.programmanagement.service;
 
 import org.cognizant.programmanagement.Enum.IncidentStatus;
 import org.cognizant.programmanagement.Enum.ReportStatus;
+import org.cognizant.programmanagement.Enum.Role;
 import org.cognizant.programmanagement.client.IdentityClient;
 import org.cognizant.programmanagement.dao.EmergencyRepository;
 import org.cognizant.programmanagement.dao.IncidentRepository;
@@ -103,11 +104,27 @@ public class IncidentService {
     private void validateOfficer(int officerId) {
         try {
             List<UserDTO> userList = identityClient.allUsers();
-            if (userList != null && userList.stream().noneMatch(u -> u.getUserId() == officerId)) {
-                throw new RuntimeException("Invalid Officer ID: " + officerId);
+
+            if (userList == null || userList.isEmpty()) {
+                throw new RuntimeException("Identity Service returned no users.");
             }
+
+            // Check if the user exists AND has the Role.OFFICER
+            boolean isValidOfficer = userList.stream()
+                    .anyMatch(u -> u.getUserId() == officerId && u.getRole() == Role.OFFICER);
+
+            if (!isValidOfficer) {
+                throw new RuntimeException("Validation Failed: User ID " + officerId + " is not an authorized Officer.");
+            }
+
         } catch (Exception e) {
-            System.err.println("Identity Service unreachable. Proceeding with caution.");
+            // Log the error for debugging
+            System.err.println("Officer Validation Error: " + e.getMessage());
+
+            // CRITICAL: You must re-throw the exception.
+            // If you don't throw it, the @Transactional method thinks everything is fine
+            // and continues to create the incident.
+            throw e;
         }
     }
 
