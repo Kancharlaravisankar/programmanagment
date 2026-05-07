@@ -31,11 +31,11 @@ public class SecurityConfig {
         httpSecurity
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/users/login", "/api/users/createUser","/api/citizens/createCitizen","/api/programs/viewAll","/api/resources/viewAll").permitAll() // ALLOW THESE WITHOUT LOGIN
+                        .requestMatchers("/api/users/login", "/api/users/createUser","/api/citizens/createCitizen","/api/programs/viewAll","/api/resources/viewAll","/api/reports/getallreports").permitAll() // ALLOW THESE WITHOUT LOGIN
                         .requestMatchers( "/api/programs/**","/api/resources/**","/api/reports/getallreports","/api/reports/update-status/{id}","/api/reports/delete/{id}","/api/incidents/**").hasRole("MANAGER")
                         .requestMatchers("/api/reports/createReport","/api/reports/{id}/details").hasRole("CITIZEN")
                         .requestMatchers("/api/reports/{id}").hasAnyRole("MANAGER", "CITIZEN")
-                        .requestMatchers("/api/reports/getallreports").hasAnyRole("OFFICER","MANAGER")
+
                 )
 
                 .httpBasic(Customizer.withDefaults())
