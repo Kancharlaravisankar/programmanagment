@@ -100,19 +100,36 @@ public class EmergencyReportService {
         return toResponseDTO(report);
     }
 
-    public EmergencyReportDetailsResponseDTO getReportWithCitizen(int id) {
-        EmergencyReport report = reportRepo.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Report not found with ID: " + id));
+    public List<EmergencyReportDetailsResponseDTO> getAllReportsByCitizenId(int citizenId) {
+        // 1. Fetch ALL reports belonging to this citizen from the DAO
+        List<EmergencyReport> reports = reportRepo.findByCitizenId(citizenId);
 
-        // Fetch citizen details from Identity Service
-        CitizenDTO citizen = identityClient.getCitizenById(report.getCitizenId());
+        // 2. Fetch citizen details ONCE to avoid hitting Identity Service in a loop
+        // (Optimization: We use the ID passed in since all these reports belong to them)
+        CitizenDTO citizen = null;
+        try {
+            citizen = identityClient.getCitizenById(citizenId);
+        } catch (Exception e) {
+            // Log the error but don't crash the whole request
+            System.out.println("Identity Service unreachable for citizen: " + citizenId);
+        }
 
-        EmergencyReportDetailsResponseDTO details = new EmergencyReportDetailsResponseDTO();
-        details.setReport(toResponseDTO(report));
-        details.setCitizenName(citizen.getName());
-        details.setCitizenAddress(citizen.getAddress());
+        // 3. Map the list of reports to the list of DTOs
+        final CitizenDTO finalCitizen = citizen; // Required for lambda
+        return reports.stream().map(report -> {
+            EmergencyReportDetailsResponseDTO details = new EmergencyReportDetailsResponseDTO();
+            details.setReport(toResponseDTO(report));
 
-        return details;
+            // 4. NULL GUARD: Only set name/address if citizen was actually found
+            if (finalCitizen != null) {
+                details.setCitizenName(finalCitizen.getName());
+                details.setCitizenAddress(finalCitizen.getAddress());
+            } else {
+                details.setCitizenName("Unknown");
+                details.setCitizenAddress("Not Available");
+            }
+            return details;
+        }).collect(Collectors.toList());
     }
 
     @Transactional

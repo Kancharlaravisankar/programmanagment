@@ -52,9 +52,10 @@ public class EmergencyReportController {
      * GET /api/reports/{id}/details
      * Replaces /getreportwithcitizendetails/{id}/details
      */
-    @GetMapping("/{id}/details")
-    public EmergencyReportDetailsResponseDTO getReportWithCitizen(@PathVariable int id) {
-        return service.getReportWithCitizen(id);
+    @GetMapping("/citizen/{citizenId}")
+    public List<EmergencyReportDetailsResponseDTO> getReportsByCitizen(@PathVariable int citizenId) {
+        // We change the return type to a List because a citizen can have multiple reports
+        return service.getAllReportsByCitizenId(citizenId);
     }
     // UPDATE EMERGENCY REPORT STATUS
     @PutMapping("/update-status/{id}")
