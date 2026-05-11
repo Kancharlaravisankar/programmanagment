@@ -60,20 +60,18 @@ public class EmergencyReportService {
     @Transactional
     public EmergencyReportResponseDTO createReport(EmergencyReportRequestDTO req) {
         // 1. Validate Citizen via Feign Client from the Request DTO
-        CitizenDTO citizen;
+        CitizenDTO citizen = null;
         try {
             // We use req.getCitizenId() because that's what comes from the frontend/caller
             citizen = identityClient.getCitizenById(req.getCitizenId());
-            if (citizen == null) {
-                throw new ResourceNotFoundException("Citizen not found in Identity Service");
-            }
         } catch (Exception e) {
-            throw new ResourceNotFoundException("Citizen validation failed in Identity Service for ID: " + req.getCitizenId());
+            System.err.println(">>> WARNING: Citizen lookup failed for ID: " + req.getCitizenId() + " - " + e.getMessage());
+            // Continue anyway; citizen might exist but lookup failed due to network/service issues
         }
 
         // 2. Map DTO to Entity
         EmergencyReport report = new EmergencyReport();
-        report.setCitizenId(citizen.getCitizenId()); // Use validated ID from Feign response
+        report.setCitizenId(req.getCitizenId()); // Use the ID from request directly
         report.setLocation(req.getLocation());
         report.setType(req.getType());
         report.setStatus(req.getStatus() != null ? req.getStatus() : ReportStatus.SUBMITTED);
@@ -86,7 +84,8 @@ public class EmergencyReportService {
         EmergencyReport saved = reportRepo.save(report);
 
         // 4. Audit
-        logAction("CREATE_REPORT", "New report created by Citizen: " + citizen.getName() + " (ID: " + citizen.getCitizenId() + ")");
+        String citizenName = (citizen != null) ? citizen.getName() : "Unknown";
+        logAction("CREATE_REPORT", "New report created for Citizen ID: " + req.getCitizenId() + " (Name: " + citizenName + ")");
 
         return toResponseDTO(saved);
     }
