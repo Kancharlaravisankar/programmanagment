@@ -56,6 +56,28 @@ public class RecoveryService {
         logAction("VIEW_BY_ID", "Viewed Program ID: " + id);
         return toResponseDTO(entity);
     }
+    public RecoveryProgramResponseDTO updateProgramStatus(int id, String statusStr) {
+        // 1. Find the existing program
+        RecoveryProgram entity = programRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Program not found with ID: " + id));
+
+        // 2. Convert String to Enum (Case-insensitive)
+        try {
+            RecoveryStatus newStatus = RecoveryStatus.valueOf(statusStr.toUpperCase());
+            entity.setStatus(newStatus);
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Invalid status value: " + statusStr);
+        }
+
+        // 3. Save the updated entity
+        RecoveryProgram updatedEntity = programRepository.save(entity);
+
+        // 4. Log the action in the Audit Log
+        logAction("UPDATE_STATUS", "Changed Program ID " + id + " status to " + statusStr);
+
+        // 5. Return the updated DTO
+        return toResponseDTO(updatedEntity);
+    }
 
     // --- Private Helper Methods for Mapping ---
 

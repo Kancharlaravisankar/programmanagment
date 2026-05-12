@@ -36,4 +36,14 @@ public class RecoveryController {
         RecoveryProgramResponseDTO program = recoveryService.getProgramById(id);
         return ResponseEntity.ok(program);
     }
+    @PatchMapping("/update-status/{id}")
+    public ResponseEntity<RecoveryProgramResponseDTO> updateProgramStatus(
+            @PathVariable int id,
+            @RequestParam String status) {
+
+        // Convert string status to Enum and update
+        RecoveryProgramResponseDTO updatedProgram = recoveryService.updateProgramStatus(id, status);
+
+        return ResponseEntity.ok(updatedProgram);
+    }
 }

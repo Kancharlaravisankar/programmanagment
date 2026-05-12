@@ -34,7 +34,11 @@ public class GlobalExceptionHandler {
     // This allows you to throw errors without creating custom classes
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<Map<String, Object>> handleResponseStatusException(ResponseStatusException ex) {
-        return buildResponse((HttpStatus) ex.getStatusCode(), "Resource Error", ex.getReason());
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        if (status == null) {
+            status = HttpStatus.BAD_REQUEST;
+        }
+        return buildResponse(status, "Resource Error", ex.getReason());
     }
 
     // 3. Handles Generic Runtime Errors (e.g., business logic failures)
